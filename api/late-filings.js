@@ -1,136 +1,126 @@
 // api/late-filings.js
-// Pulls NT 10-K and NT 10-Q filings from SEC EDGAR (100% free, no API key)
-// Filters for biotech/biopharma SIC codes on NASDAQ
+// Calls SEC EDGAR server-side (no CORS issue), filters biotech/pharma on Nasdaq
 
 const BIOTECH_SICS = new Set([
-  '2830','2833','2834','2835','2836', // pharma / biotech
-  '8731','8734',                       // R&D / testing labs
-  '3826','3827','3841','3845',         // medical instruments
-  '5122',                              // drug wholesalers
+  '2830','2833','2834','2835','2836',
+  '8731','8734','3826','3841','3845','5122'
 ]);
 
-const NASDAQ_EXCHANGES = new Set(['Nasdaq Global Select Market','Nasdaq Global Market','Nasdaq Capital Market','NASDAQ']);
-
-async function fetchEdgar(formType, days = 90) {
+async function fetchEdgar(formType, days) {
   const end   = new Date();
-  const start = new Date(end - days * 86400000);
+  const start = new Date(Date.now() - days * 86400000);
   const fmt   = d => d.toISOString().slice(0,10);
-
-  const url = new URL('https://efts.sec.gov/LATEST/search-index');
-  url.searchParams.set('q', `"${formType}"`);
-  url.searchParams.set('forms', formType);
-  url.searchParams.set('dateRange', 'custom');
-  url.searchParams.set('startdt', fmt(start));
-  url.searchParams.set('enddt',   fmt(end));
-  url.searchParams.set('size', '50');
-
-  const res = await fetch(url.toString(), {
-    headers: { 'User-Agent': 'BioScannerPro research@bioscannerpro.app' }
+  const params = new URLSearchParams({
+    q: `"${formType}"`,
+    forms: formType,
+    dateRange: 'custom',
+    startdt: fmt(start),
+    enddt: fmt(end),
+    size: '40'
   });
-  if (!res.ok) throw new Error(`EDGAR error ${res.status}`);
+  const res = await fetch(`https://efts.sec.gov/LATEST/search-index?${params}`, {
+    headers: { 'User-Agent': 'BioScannerPro contact@bioscannerpro.app' }
+  });
+  if (!res.ok) throw new Error(`EDGAR ${formType} error: ${res.status}`);
   return res.json();
 }
 
-async function getCompanyDetails(cik) {
-  const paddedCik = String(cik).padStart(10, '0');
-  const res = await fetch(
-    `https://data.sec.gov/submissions/CIK${paddedCik}.json`,
-    { headers: { 'User-Agent': 'BioScannerPro research@bioscannerpro.app' } }
-  );
+async function getCompany(cik) {
+  if (!cik) return null;
+  const padded = String(cik).padStart(10,'0');
+  const res = await fetch(`https://data.sec.gov/submissions/CIK${padded}.json`, {
+    headers: { 'User-Agent': 'BioScannerPro contact@bioscannerpro.app' }
+  });
   if (!res.ok) return null;
   return res.json();
 }
 
-function classifyRisk(company, filing) {
-  const daysSince = Math.floor((Date.now() - new Date(filing.file_date)) / 86400000);
-  if (daysSince > 60) return 'High';
-  if (daysSince > 30) return 'Medium';
+function getRisk(filingDate) {
+  const days = Math.floor((Date.now() - new Date(filingDate)) / 86400000);
+  if (days > 45) return 'High';
+  if (days > 20) return 'Medium';
   return 'Low';
 }
 
-function bouncePotential(company) {
-  const sic = String(company?.sic || '');
-  if (['2836','8731'].includes(sic)) return 'High';
-  if (BIOTECH_SICS.has(sic))        return 'Medium';
+function getBounce(sic) {
+  if (['2836','8731','2835'].includes(String(sic))) return 'High';
+  if (BIOTECH_SICS.has(String(sic))) return 'Medium';
   return 'Low';
 }
 
-function bounceReason(risk, bounce) {
-  if (bounce === 'High' && risk !== 'High') return 'Core biotech/biopharma — filing delays often administrative. Stock may recover once filed.';
-  if (bounce === 'High') return 'Biotech with active pipeline. Late filings from auditor issues often resolve quickly, triggering relief bounce.';
-  if (bounce === 'Medium') return 'Pharma-adjacent sector. Recovery depends on reason for delay and pipeline strength.';
-  return 'Limited bounce potential without confirmed catalyst.';
+function getBounceReason(bounce, risk) {
+  if (bounce === 'High' && risk === 'Low')  return 'Core biotech - very recent filing. Likely administrative delay. Quick resolution probable.';
+  if (bounce === 'High')                    return 'Biotech/biopharma with active pipeline. Auditor delays often resolve fast, stock can pop on filing.';
+  if (bounce === 'Medium')                  return 'Pharma-adjacent sector. Recovery depends on pipeline and reason for delay.';
+  return 'Limited bounce potential without a clear catalyst.';
 }
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=7200');
+  res.setHeader('Cache-Control', 's-maxage=3600');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    // Fetch NT 10-K and NT 10-Q in parallel
-    const [ntKData, ntQData] = await Promise.all([
+    const [ntK, ntQ] = await Promise.all([
       fetchEdgar('NT 10-K', 90),
       fetchEdgar('NT 10-Q', 60),
     ]);
 
-    const allHits = [
-      ...(ntKData?.hits?.hits || []).map(h => ({...h._source, _formType:'NT 10-K'})),
-      ...(ntQData?.hits?.hits || []).map(h => ({...h._source, _formType:'NT 10-Q'})),
+    const hits = [
+      ...(ntK?.hits?.hits || []).map(h => ({...h._source, _form:'NT 10-K'})),
+      ...(ntQ?.hits?.hits || []).map(h => ({...h._source, _form:'NT 10-Q'})),
     ];
 
-    // Deduplicate by entity+form
     const seen = new Set();
-    const unique = allHits.filter(h => {
-      const key = `${h.entity_name}_${h._formType}`;
+    const unique = hits.filter(h => {
+      const key = `${h.entity_name}_${h._form}`;
       if (seen.has(key)) return false;
       seen.add(key); return true;
     });
 
-    // Enrich with company details and filter for biotech on Nasdaq
-    const enriched = await Promise.allSettled(
-      unique.slice(0, 30).map(async filing => {
-        const cik = filing.file_num?.split('-')[1] || filing.cik_str || filing.cik;
+    const settled = await Promise.allSettled(
+      unique.slice(0, 25).map(async filing => {
+        const cik = filing.ciks?.[0] || filing.cik_str || filing.cik;
         let company = null;
-        try { company = await getCompanyDetails(cik); } catch {}
+        try { company = await getCompany(cik); } catch {}
 
-        const sic = String(company?.sic || '');
-        const exchange = company?.exchanges?.[0] || '';
+        const sic      = String(company?.sic || '');
+        const exchange = (company?.exchanges || []).join(' ').toLowerCase();
+        const ticker   = company?.tickers?.[0] || '';
 
-        // Filter: must be biotech SIC AND Nasdaq
         if (!BIOTECH_SICS.has(sic)) return null;
-        if (!NASDAQ_EXCHANGES.has(exchange) && !exchange.toLowerCase().includes('nasdaq')) return null;
+        if (!exchange.includes('nasdaq')) return null;
 
-        const ticker = company?.tickers?.[0] || '';
-        const risk   = classifyRisk(company, filing);
-        const bounce = bouncePotential(company);
+        const risk   = getRisk(filing.file_date);
+        const bounce = getBounce(sic);
 
         return {
-          ticker:               ticker || '—',
-          name:                 filing.entity_name || company?.name || '?',
-          filing_missed:        filing._formType,
-          notice_date:          filing.file_date,
-          fiscal_period:        filing.period_of_report ? `Period: ${filing.period_of_report}` : 'Unknown',
-          reason:               'Late filing notification (NT form submitted to SEC)',
-          status:               'NT Filed — Nasdaq notified',
-          risk_level:           risk,
-          market_cap:           'See Yahoo Finance',
-          pipeline:             company?.sicDescription || 'Biotech / Biopharma',
-          resolution_deadline:  'Within 15 days of original deadline per SEC rules',
-          bounce_potential:     bounce,
-          bounce_reason:        bounceReason(risk, bounce),
-          sec_url:              `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=NT&dateb=&owner=include&count=10`,
+          ticker,
+          name:                filing.entity_name || company?.name || 'Unknown',
+          filing_missed:       filing._form,
+          notice_date:         filing.file_date,
+          fiscal_period:       filing.period_of_report || 'Unknown',
+          reason:              'NT form filed - company notified SEC of inability to file on time',
+          status:              'NT Filed - Late Filing',
+          risk_level:          risk,
+          market_cap:          'See Yahoo Finance',
+          pipeline:            company?.sicDescription || 'Biotech / Biopharma',
+          resolution_deadline: '15 days from original deadline per SEC rules',
+          bounce_potential:    bounce,
+          bounce_reason:       getBounceReason(bounce, risk),
+          sec_url:             `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=NT&dateb=&owner=include&count=10`,
         };
       })
     );
 
-    const results = enriched
-      .filter(r => r.status === 'fulfilled' && r.value !== null)
+    const results = settled
+      .filter(r => r.status === 'fulfilled' && r.value)
       .map(r => r.value)
       .sort((a,b) => new Date(b.notice_date) - new Date(a.notice_date));
 
-    return res.status(200).json({ results, source: 'SEC EDGAR (free)', scanned_at: new Date().toISOString() });
-  } catch (e) {
+    return res.status(200).json({ results, scanned_at: new Date().toISOString() });
+
+  } catch(e) {
     return res.status(500).json({ error: e.message });
   }
 }
