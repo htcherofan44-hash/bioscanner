@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta name="theme-color" content="#04080f"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="BioScanner"/>
+<meta name="description" content="Free Nasdaq Biotech Stock Intelligence — Late Filings & Momentum Scanner"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="apple-touch-icon" href="/icon-512.svg"/>
+<title>BioScanner Pro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+:root{
+  --bg:#04080f;--bg2:#080f1a;--bg3:#0c1525;--bg4:#101d30;
+  --b1:#0f2235;--b2:#1a3a5c;--b3:#2a5a8c;
+  --t1:#d0e8f8;--t2:#6a9abf;--t3:#2a5070;--t4:#142535;
+  --blue:#4ab0ff;--cyan:#00d4ff;
+  --green:#00ff88;--green2:#00cc6a;
+  --red:#ff4466;--red2:#cc2244;
+  --orange:#ffaa00;--orange2:#cc7700;
+  --purple:#aa66ff;
+  --mono:'JetBrains Mono',monospace;
+  --display:'Syne',sans-serif;
+  --glow-blue: 0 0 20px rgba(74,176,255,0.3);
+  --glow-green: 0 0 20px rgba(0,255,136,0.3);
+}
+html,body{height:100%;background:var(--bg);color:var(--t1);font-family:var(--mono);overflow:hidden;}
+::selection{background:rgba(74,176,255,.3);}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--b3);border-radius:2px}
+
+/* ─── LAYOUT ─── */
+#app{display:flex;flex-direction:column;height:100dvh;position:relative;z-index:1;}
+#hdr{padding:16px 18px 0;flex-shrink:0;}
+#tabbar{display:flex;border-bottom:1px solid var(--b1);flex-shrink:0;margin-top:14px;}
+#body{flex:1;overflow:hidden;position:relative;}
+.panel{position:absolute;inset:0;overflow-y:auto;padding:14px 18px;-webkit-overflow-scrolling:touch;display:none;}
+.panel.on{display:block;}
+
+/* ─── ANIMATED BG ─── */
+#bg-canvas{position:fixed;inset:0;z-index:0;pointer-events:none;}
+.grid-overlay{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(74,176,255,.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(74,176,255,.03) 1px,transparent 1px);
+  background-size:40px 40px;}
+
+/* ─── HEADER ─── */
+.eyebrow{font-size:8px;letter-spacing:.3em;color:var(--cyan);margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+.pulse-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulsedot 2s ease infinite;}
+.app-title{font-family:var(--display);font-size:clamp(20px,5vw,30px);font-weight:800;color:#fff;letter-spacing:-.03em;line-height:1;}
+.app-sub{font-size:8px;color:var(--t3);letter-spacing:.18em;margin-top:4px;}
+.free-badge{display:inline-block;padding:2px 8px;font-size:7px;letter-spacing:.15em;border-radius:99px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--green);margin-left:8px;vertical-align:middle;}
+
+/* ─── TABS ─── */
+.tab{flex:1;padding:10px 6px;font-family:var(--mono);font-size:9px;letter-spacing:.12em;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--t3);cursor:pointer;transition:all .25s;white-space:nowrap;}
+.tab.on{color:var(--blue);border-bottom-color:var(--blue);background:rgba(74,176,255,.05);}
+.tab:hover:not(.on){color:var(--t2);}
+
+/* ─── SECTION LABELS ─── */
+.section-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+.section-desc{font-size:9px;color:var(--t3);letter-spacing:.1em;}
+.ts-label{font-size:8px;color:var(--t4);letter-spacing:.08em;margin-bottom:10px;}
+
+/* ─── STATS ROW ─── */
+.stats{display:flex;gap:2px;margin:10px 0;}
+.stat{flex:1 1 60px;background:var(--bg2);border:1px solid var(--b1);border-top:2px solid;padding:10px 10px 8px;}
+.stat-n{font-family:var(--display);font-size:22px;font-weight:800;line-height:1;}
+.stat-l{font-size:7px;color:var(--t3);letter-spacing:.13em;margin-top:3px;}
+
+/* ─── FILTERS ─── */
+.filters{display:flex;gap:5px;margin-bottom:12px;flex-wrap:wrap;}
+.fbtn{padding:4px 10px;font-family:var(--mono);font-size:8px;letter-spacing:.1em;border:1px solid var(--b1);background:transparent;color:var(--t3);cursor:pointer;border-radius:2px;transition:all .2s;}
+.fbtn.on{border-color:var(--blue);color:var(--blue);background:rgba(74,176,255,.08);}
+
+/* ─── CARDS ─── */
+.card{background:var(--bg2);border:1px solid var(--b1);border-radius:3px;padding:14px 15px;margin-bottom:8px;cursor:pointer;transition:all .2s;animation:slideUp .3s ease both;position:relative;overflow:hidden;}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(74,176,255,.2),transparent);opacity:0;transition:opacity .2s;}
+.card:hover::before,.card:active::before{opacity:1;}
+.card:hover,.card:active{border-color:var(--b2);transform:translateY(-1px);box-shadow:0 4px 20px rgba(0,0,0,.4);}
+.card-lf{border-left:2px solid;}
+.card-mo{border-left:2px solid var(--green);}
+
+/* ─── CRITERIA BOX ─── */
+.criteria-box{background:var(--bg2);border:1px solid var(--b1);border-left:2px solid var(--blue);padding:10px 14px;border-radius:3px;margin-bottom:12px;}
+.criteria-title{font-size:7px;color:var(--blue);letter-spacing:.2em;margin-bottom:7px;}
+
+/* ─── BADGES ─── */
+.bdg{display:inline-block;padding:2px 6px;font-size:7px;letter-spacing:.1em;border-radius:2px;margin-right:3px;margin-bottom:3px;border:1px solid transparent;}
+.bdg-blue{background:rgba(74,176,255,.1);border-color:rgba(74,176,255,.25);color:var(--blue);}
+.bdg-green{background:rgba(0,255,136,.1);border-color:rgba(0,255,136,.25);color:var(--green);}
+.bdg-red{background:rgba(255,68,102,.1);border-color:rgba(255,68,102,.25);color:var(--red);}
+.bdg-orange{background:rgba(255,170,0,.1);border-color:rgba(255,170,0,.25);color:var(--orange);}
+.bdg-grey{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:var(--t2);}
+
+/* ─── MOMENTUM METRICS GRID ─── */
+.mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:9px;}
+.mcell{background:var(--bg3);padding:6px 8px;border-radius:2px;}
+.mval{font-size:11px;font-weight:700;font-family:var(--display);}
+.mkey{font-size:7px;color:var(--t3);letter-spacing:.1em;margin-top:2px;}
+
+/* ─── REFRESH BUTTON ─── */
+.rfbtn{padding:7px 14px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;border:1px solid var(--b2);background:rgba(74,176,255,.06);color:var(--blue);cursor:pointer;border-radius:3px;transition:all .2s;display:inline-flex;align-items:center;gap:6px;}
+.rfbtn:hover{background:rgba(74,176,255,.12);border-color:var(--blue);}
+.rfbtn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* ─── MODAL ─── */
+#overlay{display:none;position:fixed;inset:0;background:rgba(2,5,12,.92);z-index:300;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px);}
+#overlay.on{display:flex;animation:fadeIn .2s ease;}
+.modal{background:var(--bg2);border:1px solid var(--b2);border-radius:4px;padding:22px;max-width:500px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.8);}
+.modal-ticker{font-family:var(--display);font-size:26px;font-weight:800;line-height:1;}
+.modal-name{font-size:12px;color:var(--t2);margin-top:4px;}
+.mrow{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--b1);font-size:11px;gap:12px;}
+.mlbl{color:var(--t3);letter-spacing:.08em;min-width:130px;flex-shrink:0;font-size:10px;}
+.mrval{color:var(--t1);text-align:right;}
+.ibox{margin-top:10px;padding:12px;border-radius:3px;border:1px solid var(--b1);font-size:11px;line-height:1.65;}
+
+/* ─── SEC LINK ─── */
+.sec-link{display:inline-flex;align-items:center;gap:5px;font-size:9px;color:var(--cyan);text-decoration:none;border:1px solid rgba(0,212,255,.2);padding:4px 10px;border-radius:2px;margin-top:10px;transition:all .2s;}
+.sec-link:hover{background:rgba(0,212,255,.08);border-color:var(--cyan);}
+
+/* ─── INSTALL BANNER ─── */
+#ibanner{display:none;position:fixed;bottom:calc(16px + env(safe-area-inset-bottom,0px));left:16px;right:16px;background:var(--bg3);border:1px solid var(--blue);border-radius:4px;padding:12px 14px;z-index:400;align-items:center;gap:10px;box-shadow:var(--glow-blue);}
+#ibanner.on{display:flex;}
+
+/* ─── LOADING / EMPTY / ERROR ─── */
+.skel{background:var(--bg2);border:1px solid var(--b1);border-radius:3px;margin-bottom:8px;animation:shimmer 1.5s ease infinite;}
+.empty-state{text-align:center;padding:52px 20px;color:var(--t3);}
+.empty-icon{font-size:32px;margin-bottom:12px;opacity:.4;}
+.errbox{background:rgba(255,68,102,.06);border:1px solid rgba(255,68,102,.25);padding:14px;border-radius:3px;color:var(--red);font-size:11px;line-height:1.6;}
+.count-label{font-size:8px;color:var(--t3);text-align:right;margin-top:6px;letter-spacing:.08em;}
+.disclaimer{margin-top:22px;padding-top:14px;border-top:1px solid var(--b1);font-size:8px;color:var(--t4);letter-spacing:.08em;line-height:1.9;text-align:center;}
+
+/* ─── ANIMATIONS ─── */
+@keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes pulsedot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+@keyframes shimmer{0%,100%{opacity:.6}50%{opacity:.2}}
+.spinning{animation:spin .9s linear infinite;display:inline-block;}
+
+/* ─── RESPONSIVE ─── */
+@media(max-width:380px){
+  .mgrid{grid-template-columns:repeat(2,1fr);}
+  .tab{font-size:8px;padding:10px 3px;}
+  #hdr{padding:12px 14px 0;}
+  .panel{padding:12px 14px;}
+}
+</style>
+</head>
+<body>
+<div class="grid-overlay"></div>
+
+<div id="app">
+
+  <!-- HEADER -->
+  <div id="hdr">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+      <div>
+        <div class="eyebrow">
+          <span class="pulse-dot"></span>
+          BIOSCANNER PRO
+          <span class="free-badge">100% FREE</span>
+        </div>
+        <div class="app-title">STOCK INTEL</div>
+        <div class="app-sub">SEC EDGAR · YAHOO FINANCE · LIVE DATA</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div id="clock" style="font-size:10px;color:var(--t3);line-height:1.9;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div id="tabbar">
+    <button class="tab on"  onclick="switchTab('lf',this)">⚠ LATE FILINGS</button>
+    <button class="tab"     onclick="switchTab('mo',this)">↑ MOMENTUM</button>
+  </div>
+
+  <!-- BODY -->
+  <div id="body">
+
+    <!-- LATE FILINGS PANEL -->
+    <div class="panel on" id="p-lf">
+      <div class="section-hd">
+        <div class="section-desc">NT 10-K · NT 10-Q · SEC EDGAR live</div>
+        <button class="rfbtn" id="lf-btn" onclick="loadLF(true)">
+          <span id="lf-spin">⟳</span> REFRESH
+        </button>
+      </div>
+      <div id="lf-ts" class="ts-label"></div>
+      <div id="lf-stats" class="stats" style="display:none;"></div>
+      <div id="lf-filters" class="filters" style="display:none;"></div>
+      <div id="lf-list"></div>
+      <div class="disclaimer">
+        DATA SOURCE: SEC EDGAR (efts.sec.gov) — FREE, OFFICIAL, NO API KEY<br>
+        ⚠ NOT FINANCIAL ADVICE · VERIFY WITH SEC.GOV BEFORE INVESTING
+      </div>
+    </div>
+
+    <!-- MOMENTUM PANEL -->
+    <div class="panel" id="p-mo">
+      <div class="section-hd">
+        <div class="section-desc">Yahoo Finance screener · live market data</div>
+        <button class="rfbtn" id="mo-btn" onclick="loadMO(true)">
+          <span id="mo-spin">⟳</span> REFRESH
+        </button>
+      </div>
+      <div id="mo-ts" class="ts-label"></div>
+
+      <div class="criteria-box">
+        <div class="criteria-title">ACTIVE SCAN CRITERIA</div>
+        <span class="bdg bdg-blue">PRICE &lt; $5</span>
+        <span class="bdg bdg-blue">VOL &gt; 500K</span>
+        <span class="bdg bdg-blue">REL VOL &gt; 2x</span>
+        <span class="bdg bdg-blue">FLOAT &lt; 30M</span>
+        <span class="bdg bdg-blue">CHANGE &gt; 3%</span>
+        <span class="bdg bdg-blue">≤10% FROM 52W HIGH</span>
+        <span class="bdg bdg-blue">MICRO / SMALL CAP</span>
+        <span class="bdg bdg-blue">BIOTECH / PHARMA</span>
+      </div>
+
+      <div id="mo-stats" class="stats" style="display:none;"></div>
+      <div id="mo-filters" class="filters" style="display:none;"></div>
+      <div id="mo-list"></div>
+      <div class="disclaimer">
+        DATA SOURCE: YAHOO FINANCE (FREE) · 15-MIN DELAYED DURING MARKET HOURS<br>
+        ⚠ NOT FINANCIAL ADVICE · VERIFY BEFORE INVESTING
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="overlay" onclick="closeModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div>
+        <div id="m-ticker" class="modal-ticker"></div>
+        <div id="m-name"   class="modal-name"></div>
+      </div>
+      <button onclick="closeModal()" style="background:transparent;border:1px solid var(--b2);color:var(--t2);font-size:14px;cursor:pointer;width:30px;height:30px;border-radius:3px;font-family:inherit;">✕</button>
+    </div>
+    <div id="m-body"></div>
+  </div>
+</div>
+
+<!-- INSTALL BANNER -->
+<div id="ibanner">
+  <div>
+    <div style="font-size:11px;color:var(--blue);margin-bottom:2px;">📲 Install BioScanner Pro</div>
+    <div style="font-size:8px;color:var(--t3);">Add to home screen — works offline</div>
+  </div>
+  <button class="rfbtn" onclick="installApp()" style="margin-left:auto;white-space:nowrap;">INSTALL</button>
+  <button onclick="document.getElementById('ibanner').classList.remove('on')" style="background:transparent;border:none;color:var(--t3);cursor:pointer;font-size:18px;">✕</button>
+</div>
+
+<script>
+// ── PWA ─────────────────────────────────────────────────────────────────────
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); deferredInstall = e;
+  if (!localStorage.getItem('bsc-installed'))
+    setTimeout(() => document.getElementById('ibanner').classList.add('on'), 3000);
+});
+window.addEventListener('appinstalled', () => {
+  localStorage.setItem('bsc-installed','1');
+  document.getElementById('ibanner').classList.remove('on');
+});
+function installApp() {
+  if (deferredInstall) {
+    deferredInstall.prompt();
+    deferredInstall.userChoice.then(() => {
+      deferredInstall = null;
+      document.getElementById('ibanner').classList.remove('on');
+    });
+  }
+}
+if ('serviceWorker' in navigator)
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+
+// ── CLOCK ────────────────────────────────────────────────────────────────────
+function tick() {
+  const n = new Date();
+  document.getElementById('clock').innerHTML =
+    n.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + '<br>' +
+    n.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+}
+setInterval(tick, 30000); tick();
+
+// ── TABS ─────────────────────────────────────────────────────────────────────
+function switchTab(id, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
+  document.getElementById('p-'+id).classList.add('on');
+  btn.classList.add('on');
+}
+
+// ── CACHE ────────────────────────────────────────────────────────────────────
+const TTL = { lf: 60*60*1000, mo: 15*60*1000 }; // LF: 1hr, MO: 15min
+function readCache(k) {
+  try { const r=JSON.parse(localStorage.getItem('bsc-'+k)||'null'); if(r&&Date.now()-r.ts<TTL[k])return r; } catch {}
+  return null;
+}
+function writeCache(k, data) {
+  try { localStorage.setItem('bsc-'+k, JSON.stringify({data,ts:Date.now()})); } catch {}
+}
+
+// ── RISK / COLOR HELPERS ─────────────────────────────────────────────────────
+const RISK = {
+  High:   { border:'#ff4466', text:'#ff4466', bdg:'bdg-red'    },
+  Medium: { border:'#ffaa00', text:'#ffaa00', bdg:'bdg-orange' },
+  Low:    { border:'#00ff88', text:'#00ff88', bdg:'bdg-green'  },
+};
+const r = k => RISK[k] || RISK.Medium;
+
+// ── HTML HELPERS ─────────────────────────────────────────────────────────────
+const fmtV  = v => !v ? '?' : v>=1e6 ? (v/1e6).toFixed(2)+'M' : (v/1e3).toFixed(0)+'K';
+const skels = n => Array.from({length:n},(_,i)=>
+  `<div class="skel" style="height:${74+Math.random()*20|0}px;animation-delay:${i*.15}s"></div>`
+).join('') + '<div style="text-align:center;color:var(--t3);font-size:9px;letter-spacing:.18em;margin-top:14px;">PULLING LIVE DATA...</div>';
+const errHtml = m => `<div class="errbox">⚠ ${m}<br><small style="opacity:.6">Try refreshing. If market is closed, data may be unavailable.</small></div>`;
+const emptyHtml = () => `<div class="empty-state"><div class="empty-icon">◎</div><div style="font-size:10px;letter-spacing:.15em;">HIT REFRESH TO SCAN</div></div>`;
+const mrow = (l,v) => `<div class="mrow"><span class="mlbl">${l}</span><span class="mrval">${v||'Unknown'}</span></div>`;
+const ibox = (l,v,bc,bg,tc) => `<div class="ibox" style="border-color:${bc};background:${bg||'var(--bg3)'}"><div style="font-size:7px;color:${bc};letter-spacing:.18em;margin-bottom:6px;">${l}</div><div style="color:${tc||'var(--t2)'};">${v}</div></div>`;
+
+// ── LATE FILINGS ─────────────────────────────────────────────────────────────
+let lfData=[], lfFilter='ALL';
+
+async function loadLF(force=false) {
+  if (!force) {
+    const c = readCache('lf');
+    if (c) { lfData=c.data; document.getElementById('lf-ts').textContent='CACHED · '+new Date(c.ts).toLocaleString(); renderLF(); return; }
+  }
+  const btn=document.getElementById('lf-btn'), spin=document.getElementById('lf-spin');
+  btn.disabled=true; spin.className='spinning';
+  document.getElementById('lf-stats').style.display='none';
+  document.getElementById('lf-filters').style.display='none';
+  document.getElementById('lf-list').innerHTML = skels(5);
+  try {
+    const res  = await fetch('/api/late-filings');
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    lfData = data.results || [];
+    writeCache('lf', lfData);
+    document.getElementById('lf-ts').textContent = `SOURCE: SEC EDGAR (FREE) · ${new Date().toLocaleString()}`;
+    renderLF();
+  } catch(e) {
+    document.getElementById('lf-list').innerHTML = errHtml(e.message);
+  } finally {
+    btn.disabled=false; spin.className='';
+  }
+}
+
+function renderLF() {
+  const list=document.getElementById('lf-list');
+  const statsEl=document.getElementById('lf-stats');
+  const filEl=document.getElementById('lf-filters');
+  if (!lfData.length) { list.innerHTML=emptyHtml(); return; }
+
+  statsEl.style.display='flex'; filEl.style.display='flex';
+  statsEl.innerHTML = [
+    {n:lfData.length,                                                    l:'NT FILINGS',    c:'var(--blue)'},
+    {n:lfData.filter(s=>s.risk_level==='High').length,                   l:'HIGH RISK',     c:'var(--red)'},
+    {n:lfData.filter(s=>s.bounce_potential==='High').length,             l:'BOUNCE CAND.',  c:'var(--green)'},
+    {n:lfData.filter(s=>s.filing_missed==='NT 10-K').length,             l:'NT 10-K',       c:'var(--orange)'},
+  ].map(s=>`<div class="stat" style="border-top-color:${s.c}"><div class="stat-n" style="color:${s.c}">${s.n}</div><div class="stat-l">${s.l}</div></div>`).join('');
+
+  const FLTS = ['ALL','HIGH RISK','BOUNCE ↑','NT 10-K','NT 10-Q'];
+  filEl.innerHTML = FLTS.map(f=>`<button class="fbtn${lfFilter===f?' on':''}" onclick="setLFFilter('${f}',this)">${f}</button>`).join('');
+
+  let fd = lfData;
+  if (lfFilter==='HIGH RISK')  fd=lfData.filter(s=>s.risk_level==='High');
+  if (lfFilter==='BOUNCE ↑')   fd=lfData.filter(s=>s.bounce_potential==='High');
+  if (lfFilter==='NT 10-K')    fd=lfData.filter(s=>s.filing_missed==='NT 10-K');
+  if (lfFilter==='NT 10-Q')    fd=lfData.filter(s=>s.filing_missed==='NT 10-Q');
+
+  list.innerHTML = fd.map((s,i) => `
+    <div class="card card-lf" style="border-left-color:${r(s.risk_level).border};animation-delay:${i*.04}s" onclick="openModalLF(${lfData.indexOf(s)})">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div>
+          <span style="font-family:var(--display);font-size:18px;font-weight:800;color:${r(s.risk_level).text};">${s.ticker}</span>
+          <span class="bdg bdg-grey" style="margin-left:6px;">${s.filing_missed}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0;">
+          <span class="bdg ${r(s.risk_level).bdg}">${s.risk_level} RISK</span>
+          <span class="bdg bdg-green">↑ ${s.bounce_potential}</span>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--t2);margin:5px 0 4px;line-height:1.3;">${s.name}</div>
+      <div style="font-size:9px;color:var(--t3);">${s.notice_date} · ${s.fiscal_period}</div>
+      <div style="font-size:9px;color:var(--t3);margin-top:3px;font-style:italic;">${s.pipeline}</div>
+    </div>`).join('') +
+    `<div class="count-label">${fd.length} result${fd.length!==1?'s':''} from SEC EDGAR</div>`;
+}
+
+function setLFFilter(f,btn){
+  lfFilter=f;
+  document.querySelectorAll('#lf-filters .fbtn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderLF();
+}
+
+function openModalLF(idx){
+  const s=lfData[idx]; if(!s)return;
+  document.getElementById('m-ticker').textContent=s.ticker;
+  document.getElementById('m-ticker').style.color=r(s.risk_level).text;
+  document.getElementById('m-name').textContent=s.name;
+  document.getElementById('m-body').innerHTML =
+    mrow('FILING TYPE',s.filing_missed) +
+    mrow('FILED DATE',s.notice_date) +
+    mrow('FISCAL PERIOD',s.fiscal_period) +
+    mrow('STATUS',s.status) +
+    mrow('RISK LEVEL',s.risk_level) +
+    mrow('MARKET CAP',s.market_cap) +
+    mrow('RESOLUTION',s.resolution_deadline) +
+    mrow('BOUNCE POTENTIAL',s.bounce_potential) +
+    (s.pipeline ? ibox('SIC / SECTOR',s.pipeline,'var(--blue)','rgba(74,176,255,.04)','var(--t2)') : '') +
+    (s.bounce_reason ? ibox('↑ BOUNCE THESIS',s.bounce_reason,'var(--green)','rgba(0,255,136,.04)','var(--green2)') : '') +
+    (s.reason ? ibox('FILING NOTE',s.reason,'var(--orange)','rgba(255,170,0,.04)','var(--orange2)') : '') +
+    (s.sec_url ? `<a class="sec-link" href="${s.sec_url}" target="_blank" rel="noopener">🔗 VIEW ON SEC.GOV</a>` : '') +
+    `<div style="margin-top:14px;font-size:8px;color:var(--t4);letter-spacing:.08em;line-height:1.9;">⚠ NOT FINANCIAL ADVICE · SOURCE: SEC EDGAR (FREE & OFFICIAL)</div>`;
+  document.getElementById('overlay').classList.add('on');
+}
+
+// ── MOMENTUM ─────────────────────────────────────────────────────────────────
+let moData=[], moFilter='ALL';
+
+async function loadMO(force=false) {
+  if (!force) {
+    const c = readCache('mo');
+    if (c) { moData=c.data; document.getElementById('mo-ts').textContent='CACHED · '+new Date(c.ts).toLocaleString(); renderMO(); return; }
+  }
+  const btn=document.getElementById('mo-btn'), spin=document.getElementById('mo-spin');
+  btn.disabled=true; spin.className='spinning';
+  document.getElementById('mo-stats').style.display='none';
+  document.getElementById('mo-filters').style.display='none';
+  document.getElementById('mo-list').innerHTML = skels(5);
+  try {
+    const res  = await fetch('/api/momentum');
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    moData = data.results || [];
+    writeCache('mo', moData);
+    document.getElementById('mo-ts').textContent = `SOURCE: YAHOO FINANCE (FREE) · ${new Date().toLocaleString()}`;
+    renderMO();
+  } catch(e) {
+    document.getElementById('mo-list').innerHTML = errHtml(e.message);
+  } finally {
+    btn.disabled=false; spin.className='';
+  }
+}
+
+function renderMO() {
+  const list=document.getElementById('mo-list');
+  const statsEl=document.getElementById('mo-stats');
+  const filEl=document.getElementById('mo-filters');
+  if (!moData.length) { list.innerHTML=emptyHtml(); return; }
+
+  statsEl.style.display='flex'; filEl.style.display='flex';
+  statsEl.innerHTML = [
+    {n:moData.length,                                            l:'MATCHES',     c:'var(--green)'},
+    {n:moData.filter(s=>s.change_pct>=5).length,                l:'UP &gt;5%',   c:'var(--orange)'},
+    {n:moData.filter(s=>s.rel_volume>=5).length,                l:'RVOL &gt;5x', c:'var(--blue)'},
+    {n:moData.filter(s=>s.pct_from_52high<=3).length,           l:'NEAR 52W▲',   c:'var(--red)'},
+  ].map(s=>`<div class="stat" style="border-top-color:${s.c}"><div class="stat-n" style="color:${s.c}">${s.n}</div><div class="stat-l">${s.l}</div></div>`).join('');
+
+  const FLTS = ['ALL','TOP % GAIN','HIGH RVOL','NEAR 52W HIGH'];
+  filEl.innerHTML = FLTS.map(f=>`<button class="fbtn${moFilter===f?' on':''}" onclick="setMOFilter('${f}',this)">${f}</button>`).join('');
+
+  let fd = [...moData];
+  if (moFilter==='TOP % GAIN')    fd.sort((a,b)=>b.change_pct-a.change_pct);
+  if (moFilter==='HIGH RVOL')     fd.sort((a,b)=>b.rel_volume-a.rel_volume);
+  if (moFilter==='NEAR 52W HIGH') fd.sort((a,b)=>a.pct_from_52high-b.pct_from_52high);
+
+  list.innerHTML = fd.map((s,i) => `
+    <div class="card card-mo" style="animation-delay:${i*.04}s" onclick="openModalMO('${s.ticker}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div style="display:flex;align-items:baseline;gap:10px;">
+          <span style="font-family:var(--display);font-size:18px;font-weight:800;color:var(--green);">${s.ticker}</span>
+          <span style="font-family:var(--display);font-size:16px;color:var(--green2);">$${s.price.toFixed(2)}</span>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-family:var(--display);font-size:18px;font-weight:800;color:var(--green);">+${s.change_pct.toFixed(1)}%</div>
+          <div style="font-size:8px;color:rgba(0,255,136,.5);">RVOL ${s.rel_volume.toFixed(1)}x</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--t2);margin:5px 0 8px;">${s.name}</div>
+      <div class="mgrid">
+        <div class="mcell"><div class="mval" style="color:var(--t1);">${fmtV(s.volume)}</div><div class="mkey">VOLUME</div></div>
+        <div class="mcell"><div class="mval" style="color:var(--t1);">${fmtV(s.float_shares)}</div><div class="mkey">FLOAT</div></div>
+        <div class="mcell"><div class="mval" style="color:var(--orange);">${s.pct_from_52high.toFixed(1)}%</div><div class="mkey">FROM 52W▲</div></div>
+        <div class="mcell"><div class="mval" style="color:var(--t1);">${s.market_cap}</div><div class="mkey">MKT CAP</div></div>
+      </div>
+      ${s.catalyst?`<div style="font-size:9px;color:rgba(0,255,136,.45);margin-top:8px;">📌 ${s.catalyst.slice(0,90)}${s.catalyst.length>90?'…':''}</div>`:''}
+    </div>`).join('') +
+    `<div class="count-label">${fd.length} result${fd.length!==1?'s':''} from Yahoo Finance</div>`;
+}
+
+function setMOFilter(f,btn){
+  moFilter=f;
+  document.querySelectorAll('#mo-filters .fbtn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderMO();
+}
+
+function openModalMO(ticker){
+  const s=moData.find(x=>x.ticker===ticker); if(!s)return;
+  document.getElementById('m-ticker').textContent=s.ticker;
+  document.getElementById('m-ticker').style.color='var(--green)';
+  document.getElementById('m-name').textContent=s.name;
+  document.getElementById('m-body').innerHTML =
+    mrow('PRICE','$'+s.price.toFixed(2)) +
+    mrow('CHANGE TODAY','+'+s.change_pct.toFixed(2)+'%') +
+    mrow('VOLUME TODAY', fmtV(s.volume)) +
+    mrow('AVG VOLUME',   fmtV(s.avg_volume)) +
+    mrow('RELATIVE VOL', s.rel_volume.toFixed(2)+'x') +
+    mrow('FLOAT',        fmtV(s.float_shares)+' shares') +
+    mrow('MARKET CAP',   s.market_cap+' ('+s.cap_label+')') +
+    mrow('52W HIGH',    '$'+s.week52_high.toFixed(2)) +
+    mrow('52W LOW',     '$'+s.week52_low.toFixed(2)) +
+    mrow('% FROM 52W▲',  s.pct_from_52high.toFixed(2)+'%') +
+    mrow('SECTOR',       s.sector) +
+    mrow('RISK',         s.risk) +
+    (s.catalyst ? ibox('📌 CATALYST',s.catalyst,'var(--green)','rgba(0,255,136,.04)','var(--green2)') : '') +
+    (s.setup    ? ibox('SETUP',s.setup,'var(--blue)','rgba(74,176,255,.04)','var(--t2)')              : '') +
+    `<div style="margin-top:14px;font-size:8px;color:var(--t4);letter-spacing:.08em;line-height:1.9;">⚠ NOT FINANCIAL ADVICE · SOURCE: YAHOO FINANCE (FREE, 15-MIN DELAYED)</div>`;
+  document.getElementById('overlay').classList.add('on');
+}
+
+// ── MODAL CLOSE ──────────────────────────────────────────────────────────────
+function closeModal(){ document.getElementById('overlay').classList.remove('on'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape')closeModal(); });
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+loadLF();
+</script>
+</body>
+</html>

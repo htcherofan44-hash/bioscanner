@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#04080f" rx="64"/>
+  <rect x="28" y="28" width="456" height="456" fill="none" stroke="#4ab0ff" stroke-width="6" rx="44" opacity="0.4"/>
+  <text x="256" y="285" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="230" font-weight="bold" fill="#4ab0ff">◈</text>
+  <text x="256" y="420" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="44" letter-spacing="8" fill="#1a3a5c">BIOSCAN</text>
+</svg>
