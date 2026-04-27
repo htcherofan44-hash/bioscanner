@@ -65,4 +65,73 @@ function getBounce(sic) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 's-maxage=3600');
-  if (req.met
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  try {
+    const [tickerMap, hitsK, hitsQ] = await Promise.all([
+      getTickerMap(),
+      fetchNT('NT 10-K', 90),
+      fetchNT('NT 10-Q', 60),
+    ]);
+
+    const seen = new Set();
+    const allHits = [
+      ...hitsK.map(h => ({ ...h, _form: 'NT 10-K' })),
+      ...hitsQ.map(h => ({ ...h, _form: 'NT 10-Q' })),
+    ].filter(h => {
+      const key = `${h._source?.entity_name}_${h._form}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+
+    const nasdaqHits = allHits.filter(hit => {
+      const cik = extractCIK(hit);
+      if (!cik) return false;
+      const co = tickerMap[cik];
+      if (!co) return false;
+      const ex = co.exchange;
+      return ex.includes('nasdaq') || ex === 'nms' || ex === 'ncm' || ex === 'ngm';
+    });
+
+    const sicResults = await Promise.allSettled(
+      nasdaqHits.slice(0, 25).map(async hit => {
+        const cik  = extractCIK(hit);
+        const co   = tickerMap[cik] || {};
+        const src  = hit._source || {};
+        const { sic, sicDesc } = await getSIC(cik);
+        if (sic && !HEALTH_SICS.has(sic)) return null;
+        const risk   = getRisk(src.file_date);
+        const bounce = getBounce(sic);
+        return {
+          ticker:              co.ticker || '—',
+          name:                src.entity_name || co.name || 'Unknown',
+          filing_missed:       hit._form,
+          notice_date:         src.file_date        || 'Unknown',
+          fiscal_period:       src.period_of_report || 'Unknown',
+          reason:              'NT form submitted — company unable to file on time',
+          status:              'NT Filed — Late',
+          risk_level:          risk,
+          market_cap:          'See Yahoo Finance',
+          pipeline:            sicDesc || 'Healthcare / Biotech / Pharma',
+          resolution_deadline: '15 days from original deadline (SEC rules)',
+          bounce_potential:    bounce,
+          bounce_reason:
+            bounce === 'High' && risk === 'Low' ? 'Core biotech — recent delay likely administrative. Fast resolution probable.' :
+            bounce === 'High'                   ? 'Biotech/biopharma — auditor NT delays often resolve quickly, triggering relief rally.' :
+            bounce === 'Medium'                 ? 'Healthcare company — bounce depends on pipeline and delay reason.' :
+                                                 'Limited bounce potential without a clear catalyst.',
+          sec_url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=NT&dateb=&owner=include&count=10`,
+        };
+      })
+    );
+
+    const results = sicResults
+      .filter(r => r.status === 'fulfilled' && r.value)
+      .map(r => r.value)
+      .sort((a, b) => new Date(b.notice_date) - new Date(a.notice_date));
+
+    return res.status(200).json({ results, scanned_at: new Date().toISOString() });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+}
